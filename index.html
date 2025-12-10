@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Control IoT</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+  <style>
+    /* Mantengo estética interestelar previa (resumida) */
+    body { background: radial-gradient(circle at 50% 55%, #0f1624 0%, #07090b 72%, #000 100%); color:#dfe7ff; font-family: 'Montserrat',sans-serif; margin:0; }
+    .astro-card { background: rgba(12,18,32,0.6); border-radius:12px; border:1px solid rgba(255,255,255,0.03); padding:14px; }
+    .sensor-orb { width:120px; height:120px; border-radius:999px; display:flex; align-items:center; justify-content:center; position:relative; }
+    .orb-halo { position:absolute; inset:-18px; border-radius:999px; filter:blur(18px); opacity:0.6; pointer-events:none; }
+    .orb-value { position:relative; z-index:2; font-weight:700; font-size:1.05rem; color:#071127; padding:4px 8px; border-radius:999px; background:linear-gradient(180deg,#fff,#f1f1f1); }
+    .sensors-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px; }
+    #chartAvg { width:100%; height:320px; border-radius:10px; background:linear-gradient(180deg,#07080a,#0b0d11); border:1px solid rgba(255,255,255,0.03); }
+    #statusIndicator { position:fixed; bottom:14px; left:14px; padding:8px 12px; border-radius:10px; font-size:0.9rem; backdrop-filter:blur(6px); }
+    .btn { padding:.5rem .8rem; border-radius:8px; cursor:pointer; }
+    .btn-disabled { opacity:.45; pointer-events:none; }
+  </style>
+</head>
+<body>
+
+  <div style="max-width:1100px;margin:20px auto;padding:18px;">
+
+    <!-- Header -->
+    <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="text-align:center;flex:1;">
+        <h1 style="margin:0;font-size:1.6rem;letter-spacing:6px;color:#bfe3ff;font-weight:700">Control IoT</h1>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div id="modeDisplay" style="font-weight:700;color:#9fd7ff">Modo: <span id="currentMode">--</span></div>
+        <button id="btnModeToggle" class="btn" style="background:#102033;color:#bfe3ff;border:1px solid rgba(190,227,255,0.06)">Cambiar Modo</button>
+        <button onclick="openConfig()" class="btn" style="background:#0f2a44;color:#bfe3ff;border:1px solid rgba(190,227,255,0.06)">Config</button>
+      </div>
+    </header>
+
+    <!-- Controls row -->
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+      <!-- LEFT: Controls + sensors -->
+      <div style="flex:0 1 360px;">
+        <div class="astro-card" style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="color:#bfe3ff">Controles</strong>
+              <div style="color:#9fc7ff;font-size:0.9rem">Sala & Laboratorio</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button id="btnSalaOn" class="btn" style="background:#0ea44a;color:#00120a">Sala ON</button>
+              <button id="btnSalaOff" class="btn" style="background:#c43d3d;color:#fff">Sala OFF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nodo: Control Térmico (donde pondremos botones de calentador/enfriador en modo Admin Manual) -->
+        <div class="astro-card" style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="color:#bfe3ff">Control Térmico</strong>
+              <div style="color:#9fc7ff;font-size:0.9rem">Modo automático/manual (admin)</div>
+            </div>
+            <div>
+              <div id="controlTypeLabel" style="font-weight:700;color:#cfe6ff">--</div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <button id="btnAuto" class="btn" style="background:#1f6feb;color:#fff">Automático</button>
+            <button id="btnManual" class="btn" style="background:#334155;color:#fff">Manual</button>
+          </div>
+
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+            <button id="btnHeatOn" class="btn" style="background:#ff9f1c">Encender Calentador</button>
+            <button id="btnHeatOff" class="btn" style="background:#7c2d2d">Apagar Calentador</button>
+          </div>
+
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+            <button id="btnCoolOn" class="btn" style="background:#32d1c9">Encender Enfriador</button>
+            <button id="btnCoolOff" class="btn" style="background:#0b3c4b">Apagar Enfriador</button>
+          </div>
+        </div>
+
+        <!-- Sensors orbs -->
+        <div class="astro-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div><strong style="color:#bfe3ff">Sensores (individuales)</strong></div>
+            <div style="color:#9fc7ff;font-size:0.9rem">Orbes térmicos</div>
+          </div>
+
+          <div class="sensors-grid" style="margin-top:12px;">
+            <div style="display:flex;gap:10px;align-items:center">
+              <div id="orb1" class="sensor-orb" style="background:linear-gradient(180deg,#0b2a48,#072033)">
+                <div id="halo1" class="orb-halo" style="background:radial-gradient(circle, rgba(43,156,255,0.45), transparent 60%)"></div>
+                <div id="val1" class="orb-value">--</div>
+              </div>
+              <div style="font-weight:600;color:#cfe6ff">Sensor 1</div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center">
+              <div id="orb2" class="sensor-orb" style="background:linear-gradient(180deg,#0b2a48,#072033)">
+                <div id="halo2" class="orb-halo" style="background:radial-gradient(circle, rgba(43,156,255,0.45), transparent 60%)"></div>
+                <div id="val2" class="orb-value">--</div>
+              </div>
+              <div style="font-weight:600;color:#cfe6ff">Sensor 2</div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center">
+              <div id="orb3" class="sensor-orb" style="background:linear-gradient(180deg,#0b2a48,#072033)">
+                <div id="halo3" class="orb-halo" style="background:radial-gradient(circle, rgba(43,156,255,0.45), transparent 60%)"></div>
+                <div id="val3" class="orb-value">--</div>
+              </div>
+              <div style="font-weight:600;color:#cfe6ff">Sensor 3</div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center">
+              <div id="orb4" class="sensor-orb" style="background:linear-gradient(180deg,#0b2a48,#072033)">
+                <div id="halo4" class="orb-halo" style="background:radial-gradient(circle, rgba(43,156,255,0.45), transparent 60%)"></div>
+                <div id="val4" class="orb-value">--</div>
+              </div>
+              <div style="font-weight:600;color:#cfe6ff">Sensor 4</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: chart -->
+      <div style="flex:1;">
+        <div class="astro-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="color:#bfe3ff">Temperatura Promedio</strong>
+              <div style="color:#9fc7ff;font-size:0.9rem">Promedio en tiempo real (solo lecturas válidas)</div>
+            </div>
+            <div style="font-weight:700;color:#bfe3ff" id="avgNowHeader">-- °C</div>
+          </div>
+
+          <div id="chartAvg"></div>
+
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+            <div style="font-size:0.9rem;color:#9fc7ff">Estado Calentador:</div>
+            <div id="statHeat" style="font-weight:700;color:#ffd1b3">--</div>
+            <div style="width:16px"></div>
+            <div style="font-size:0.9rem;color:#9fc7ff">Estado Enfriador:</div>
+            <div id="statCool" style="font-weight:700;color:#b3fff1">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="statusIndicator" style="background:rgba(220,40,40,0.06); color:#ff7b7b; border:1px solid rgba(255,120,120,0.06)">Desconectado</div>
+
+    <footer style="text-align:center;color:#9fc7ff;font-size:0.85rem;padding-top:10px">Desarrolladores: Isaac García • Miguel Ruiz</footer>
+  </div>
+
+  <!-- Config modal -->
+  <div id="configModal" class="fixed inset-0 hidden z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
+    <div class="astro-card" style="max-width:520px;width:92%">
+      <h3 style="margin:0 0 10px 0;color:#bfe3ff">Configuración Firebase & Admin</h3>
+
+      <label style="font-size:12px;color:#9fc7ff">API KEY</label>
+      <input id="apiKeyInput" style="width:100%;padding:8px;margin:6px 0;border-radius:8px;background:#071022;color:#dceeff;border:1px solid rgba(140,190,255,0.06)">
+
+      <label style="font-size:12px;color:#9fc7ff">DATABASE URL</label>
+      <input id="dbUrlInput" style="width:100%;padding:8px;margin:6px 0;border-radius:8px;background:#071022;color:#dceeff;border:1px solid rgba(140,190,255,0.06)">
+
+      <label style="font-size:12px;color:#9fc7ff">Contraseña Admin inicial</label>
+      <input id="adminPassInput" placeholder="123456VN" style="width:100%;padding:8px;margin:6px 0;border-radius:8px;background:#071022;color:#dceeff;border:1px solid rgba(140,190,255,0.06)">
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button onclick="closeConfig()" style="flex:1;padding:8px;border-radius:8px;background:#1f2a3a;color:#dfe7ff">Cancelar</button>
+        <button id="saveConfigBtn" style="flex:1;padding:8px;border-radius:8px;background:#6fb1ff;color:#001622">Guardar y aplicar</button>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getDatabase, ref, onValue, set, get, child } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  let app=null, db=null;
+  let connectedCasa=false, connectedSensores=false;
+
+  // ECharts init (optimized)
+  const chart = echarts.init(document.getElementById('chartAvg'));
+  const times=[], values=[]; const MAXP=120;
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{ trigger:'axis' },
+    xAxis:{ type:'category', boundaryGap:false, data:times, axisLabel:{color:'#9fbcd6'}, axisLine:{show:false} },
+    yAxis:{ type:'value', axisLabel:{color:'#9fbcd6'}, splitLine:{lineStyle:{color:'#0f1720'}} },
+    grid:{ left:'6%', right:'6%', top:'8%', bottom:'10%' },
+    series:[{ type:'line', smooth:true, data:values, showSymbol:false, lineStyle:{width:3,color:'#7dd3fc'}, areaStyle:{color:'rgba(125,211,252,0.08)'} }]
+  });
+
+  function pushAverage(avg){
+    const t=new Date().toLocaleTimeString();
+    if(times.length>=MAXP){ times.shift(); values.shift(); }
+    times.push(t); values.push(Number(avg.toFixed(2)));
+    chart.setOption({ xAxis:{data:times}, series:[{data:values}] }, false, false);
+  }
+
+  function updateOrb(index, rawVal){
+    const v=(typeof rawVal==='number' && !isNaN(rawVal))?rawVal:NaN;
+    const orb=document.getElementById('orb'+index), halo=document.getElementById('halo'+index), valEl=document.getElementById('val'+index);
+    if(isNaN(v)){ valEl.innerText='--'; orb.style.transform='scale(1)'; halo.style.opacity='0.12'; orb.style.background='linear-gradient(180deg,#0b1622,#07121a)'; halo.style.background='radial-gradient(circle, rgba(80,80,80,0.06), transparent 60%)'; }
+    else { valEl.innerText=v.toFixed(2); let col; if(v<=18) col={bg:'linear-gradient(180deg,#062a47,#022134)',halo:'rgba(43,156,255,0.28)'}; else if(v<=25) col={bg:'linear-gradient(180deg,#083846,#053238)',halo:'rgba(50,209,201,0.28)'}; else if(v<=35) col={bg:'linear-gradient(180deg,#3a2c08,#261b06)',halo:'rgba(255,159,28,0.28)'}; else col={bg:'linear-gradient(180deg,#4c0a06,#2b0503)',halo:'rgba(255,46,46,0.32)'}; orb.style.background=col.bg; halo.style.background=`radial-gradient(circle, ${col.halo}, transparent 60%)`; halo.style.opacity=0.9; const s=1+Math.min(0.14,(v-10)/200); orb.style.transform=`scale(${s})`; }
+  }
+
+  function updateStatusUI(){
+    const el=document.getElementById('statusIndicator');
+    const ok = connectedCasa || connectedSensores;
+    if(ok){ el.innerText='Conectado'; el.style.background='rgba(20,160,120,0.06)'; el.style.color='#7bf0b7'; el.style.border='1px solid rgba(50,200,140,0.06)'; }
+    else { el.innerText='Desconectado'; el.style.background='rgba(220,40,40,0.06)'; el.style.color='#ff7b7b'; el.style.border='1px solid rgba(255,120,120,0.06)'; }
+  }
+
+  // Init firebase listeners
+  function initFirebase(apiKey, databaseURL, initialAdminPass){
+    try{
+      app = initializeApp({ apiKey: apiKey, databaseURL: databaseURL });
+      db = getDatabase(app);
+
+      // ensure admin_pass exists if not set
+      (async ()=>{
+        const adminRef = ref(db, 'sistema/admin_pass');
+        const snap = await get(adminRef);
+        if(!snap.exists()){
+          await set(adminRef, initialAdminPass);
+        }
+      })();
+
+      // listen casa (controls)
+      const casaRef = ref(db, 'casa');
+      onValue(casaRef, snap=>{
+        connectedCasa = true; updateStatusUI();
+        const data = snap.val();
+        if(!data) return;
+        // update simple icons/state if needed (not altering main UI)
+      }, err=>{
+        console.warn('casa listen err', err); connectedCasa=false; updateStatusUI();
+      });
+
+      // listen sensores
+      const sensRef = ref(db, 'sensores');
+      onValue(sensRef, snap=>{
+        connectedSensores = true; updateStatusUI();
+        const data = snap.val(); if(!data) return;
+
+        const t=[data.t1,data.t2,data.t3,data.t4];
+        let validArr=[];
+        for(let i=0;i<4;i++){
+          if(typeof t[i]==='number' && !isNaN(t[i])) { updateOrb(i+1,t[i]); validArr.push(t[i]); } else updateOrb(i+1,NaN);
+        }
+
+        let avg = null;
+        if(typeof data.promedio==='number' && !isNaN(data.promedio)) avg = data.promedio;
+        else if(validArr.length>0){ const s=validArr.reduce((a,b)=>a+b,0); avg = s/validArr.length; }
+
+        if(avg!==null){ document.getElementById('avgNowHeader').innerText=avg.toFixed(2)+' °C'; document.getElementById('avgNow').innerText=avg.toFixed(2)+' °C'; pushAverage(avg); } else { document.getElementById('avgNowHeader').innerText='-- °C'; document.getElementById('avgNow').innerText='-- °C'; }
+      }, err=>{ console.warn('sensores listen err',err); connectedSensores=false; updateStatusUI(); });
+
+      // listen sistema (modo, tipoControl, admin_pass) and control nodes
+      const sistemaRef = ref(db,'sistema');
+      onValue(sistemaRef, snap=>{
+        const s = snap.val();
+        if(!s) return;
+        if(s.modo) document.getElementById('currentMode').innerText = s.modo.toUpperCase();
+        if(s.tipoControl) document.getElementById('controlTypeLabel').innerText = s.tipoControl.toUpperCase();
+      });
+
+      // listen control states
+      const controlRef = ref(db,'control');
+      onValue(controlRef, snap=>{
+        const c = snap.val();
+        if(!c) return;
+        // show states
+        const heat = (typeof c.calentador==='boolean')?c.calentador:null;
+        const cool = (typeof c.enfriador==='boolean')?c.enfriador:null;
+        document.getElementById('statHeat').innerText = (heat===null)?'--':(heat?'ON':'OFF');
+        document.getElementById('statCool').innerText = (cool===null)?'--':(cool?'ON':'OFF');
+      });
+
+      updateStatusUI();
+    }catch(e){ console.error('initFirebase error',e); connectedCasa=connectedSensores=false; updateStatusUI(); }
+  }
+
+  // Save config button
+  document.getElementById('saveConfigBtn').addEventListener('click', async ()=>{
+    const key = document.getElementById('apiKeyInput').value.trim();
+    const url = document.getElementById('dbUrlInput').value.trim();
+    const adminPass = document.getElementById('adminPassInput').value.trim() || '123456VN';
+    if(!key||!url) return Swal.fire('Error','Faltan datos','error');
+    localStorage.setItem('iot_api_key', key); localStorage.setItem('iot_db_url', url);
+    // init firebase and set admin pass if not exists (handled by init)
+    initFirebase(key,url,adminPass);
+    closeConfig();
+  });
+
+  // Mode change flow (button) - toggle operator->ask pass->set admin, admin->set operator without pass
+  document.getElementById('btnModeToggle').addEventListener('click', async ()=>{
+    if(!db) return Swal.fire('Error','Configura Firebase primero','warning');
+    try{
+      const sistemaRef = ref(db,'sistema');
+      const snap = await get(sistemaRef);
+      const current = snap.exists() && snap.val().modo ? snap.val().modo : 'operador';
+      if(current === 'operador'){
+        // ask pass
+        const { value: pass } = await Swal.fire({ title:'Contraseña Admin', input:'password', inputPlaceholder:'Ingresa contraseña', showCancelButton:true });
+        if(!pass) return;
+        // get server stored pass
+        const passSnap = await get(child(ref(db), 'sistema/admin_pass'));
+        if(!passSnap.exists()){ return Swal.fire('Error','No hay contraseña configurada en Firebase','error'); }
+        const serverPass = passSnap.val();
+        if(pass === serverPass){
+          await set(ref(db,'sistema/modo'), 'admin');
+          Swal.fire('Listo','Modo ADMIN activado','success');
+        } else {
+          Swal.fire('Error','Contraseña incorrecta','error');
+        }
+      } else {
+        // switch back to operador without pass
+        await set(ref(db,'sistema/modo'), 'operador');
+        Swal.fire('Listo','Modo OPERADOR activado','success');
+      }
+    }catch(e){ console.error('mode toggle err',e); Swal.fire('Error',String(e),'error'); }
+  });
+
+  // control type buttons (only admin can change in DB — but UI will attempt)
+  document.getElementById('btnAuto').addEventListener('click', async ()=> {
+    if(!db) return Swal.fire('Error','Configura Firebase primero','warning');
+    try { await set(ref(db,'sistema/tipoControl'), 'auto'); Swal.fire('OK','Tipo de control: AUTOMÁTICO','success'); } catch(e){ Swal.fire('Error',String(e),'error'); }
+  });
+  document.getElementById('btnManual').addEventListener('click', async ()=> {
+    if(!db) return Swal.fire('Error','Configura Firebase primero','warning');
+    try { await set(ref(db,'sistema/tipoControl'), 'manual'); Swal.fire('OK','Tipo de control: MANUAL','success'); } catch(e){ Swal.fire('Error',String(e),'error'); }
+  });
+
+  // manual control buttons - only admin should press (web enforces via mode set on DB)
+  document.getElementById('btnHeatOn').addEventListener('click', async ()=> { if(!db) return Swal.fire('Error','Configura Firebase primero','warning'); await set(ref(db,'control/calentador'), true); });
+  document.getElementById('btnHeatOff').addEventListener('click', async ()=> { if(!db) return Swal.fire('Error','Configura Firebase primero','warning'); await set(ref(db,'control/calentador'), false); });
+  document.getElementById('btnCoolOn').addEventListener('click', async ()=> { if(!db) return Swal.fire('Error','Configura Firebase primero','warning'); await set(ref(db,'control/enfriador'), true); });
+  document.getElementById('btnCoolOff').addEventListener('click', async ()=> { if(!db) return Swal.fire('Error','Configura Firebase primero','warning'); await set(ref(db,'control/enfriador'), false); });
+
+  // helper for get()
+  import { getDatabase as gd } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  // Load saved config if present
+  (function autoInit(){
+    const sk = localStorage.getItem('iot_api_key');
+    const su = localStorage.getItem('iot_db_url');
+    if(sk && su){
+      document.getElementById('apiKeyInput').value = sk; document.getElementById('dbUrlInput').value = su;
+      document.getElementById('adminPassInput').value = localStorage.getItem('iot_admin_pass') || '123456VN';
+      initFirebase(sk, su, document.getElementById('adminPassInput').value);
+    } else {
+      setTimeout(()=> openConfig(), 600);
+    }
+  })();
+
+  // allow closing config
+  window.openConfig = ()=> document.getElementById('configModal').classList.remove('hidden');
+  window.closeConfig = ()=> document.getElementById('configModal').classList.add('hidden');
+</script>
+</body>
+</html>
